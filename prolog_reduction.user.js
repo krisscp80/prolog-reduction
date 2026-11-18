@@ -20,7 +20,6 @@
     'use strict';
 
     const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-    const PDF_WORKER_LOCAL = 'file://///SERVEUR/Partage/Outils/pdf.worker.min.js';
     const DATA_KEY = 'saved_excel_udb_site_commune';
 
     let cachedData = GM_getValue(DATA_KEY, {});
@@ -385,8 +384,7 @@
         }
 
         // Désactive le worker externe si bloqué par le navigateur sur file://
-        pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_LOCAL;
-
+      
         const loadingTask = pdfjs.getDocument({
             data: arrayBuffer.slice(0),
             disableWorker: true
