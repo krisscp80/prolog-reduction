@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Surlignage + Interception PDF Passive par Site & Commune (GitHub)
 // @namespace    http://tampermonkey.net/
-// @version      7.2
-// @description  Lit nativement l'onglet REDUCTION (sans SheetJS externe), surligne les UDB et annote le PDF Prolog
+// @version      7.3
+// @description  Lit nativement l'onglet REDUCTION (retient toujours le plus petit chiffre sur les doublons), surligne les UDB et annote le PDF Prolog
 // @match        *://*/*
 // @allFrames    true
 // @run-at       document-idle
@@ -216,7 +216,8 @@
                     qte: quantity
                 };
             } else {
-                temporary[udb][groupKey].qte = Math.max(temporary[udb][groupKey].qte, quantity);
+                // Conserve systématiquement le plus petit chiffre en cas de doublon
+                temporary[udb][groupKey].qte = Math.min(temporary[udb][groupKey].qte, quantity);
             }
         }
 
@@ -228,9 +229,9 @@
     }
 
     // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION SITE / COMMUNE
+    // 2. RÉSOLUTION SITE / COMMUNE (Toujours le plus petit chiffre sur doublons)
     // -------------------------------------------------------------------------
-    function resoudreLignesBadgePourUdb(udb, pageText, compact = true) {
+    function resoudreLignesBadgePourUdb(udb, pageText) {
         const entries = cachedData[udb];
         if (!entries || entries.length === 0) return null;
         if (entries.length === 1) return [formaterQte(entries[0].qte)];
@@ -244,8 +245,8 @@
         if (communeMatches.length === 1) return [formaterQte(communeMatches[0].qte)];
 
         const selected = communeMatches.length > 0 ? communeMatches : candidates;
-        if (compact) return selected.map(e => formaterQte(e.qte));
-        return [selected.map(e => `${e.communeRaw || e.siteRaw}: ${formaterQte(e.qte)}`).join(' / ')];
+        const minQte = Math.min(...selected.map(e => Number(e.qte)));
+        return [formaterQte(minQte)];
     }
 
     function setBadgeStatus(text, busy = false) {
@@ -295,7 +296,7 @@
             mark.textContent = udb;
             fragment.appendChild(mark);
 
-            const lines = resoudreLignesBadgePourUdb(udb, pageText, false);
+            const lines = resoudreLignesBadgePourUdb(udb, pageText);
             if (lines && lines.length > 0) {
                 const badge = document.createElement('span');
                 badge.className = 'tm-excel-badge';
@@ -402,7 +403,7 @@
 
                 for (const udb of udbKeys) {
                     if (!compactText.includes(udb)) continue;
-                    const lines = resoudreLignesBadgePourUdb(udb, pageText, true);
+                    const lines = resoudreLignesBadgePourUdb(udb, pageText);
                     if (!lines || lines.length === 0) continue;
 
                     pageAnnotations.push({
