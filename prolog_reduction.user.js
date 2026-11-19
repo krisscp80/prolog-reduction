@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Surlignage + Interception PDF Passive par Site & Commune (GitHub)
 // @namespace    http://tampermonkey.net/
-// @version      7.3
-// @description  Lit nativement l'onglet REDUCTION (retient toujours le plus petit chiffre sur les doublons), surligne les UDB et annote le PDF Prolog
+// @version      7.4
+// @description  Lit nativement l'onglet REDUCTION (priorité Commune/Site, plus petit chiffre uniquement si doublon/ambiguïté), surligne les UDB et annote le PDF Prolog
 // @match        *://*/*
 // @allFrames    true
 // @run-at       document-idle
@@ -216,7 +216,7 @@
                     qte: quantity
                 };
             } else {
-                // Conserve systématiquement le plus petit chiffre en cas de doublon
+                // Incohérence directe dans Excel (même UDB + même Site + même Commune) -> retient le plus petit
                 temporary[udb][groupKey].qte = Math.min(temporary[udb][groupKey].qte, quantity);
             }
         }
@@ -229,23 +229,33 @@
     }
 
     // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION SITE / COMMUNE (Toujours le plus petit chiffre sur doublons)
+    // 2. RÉSOLUTION SITE / COMMUNE
+    //    - Si la Commune (ou Site + Commune) est clairement identifiée -> prend son chiffre exact
+    //    - Ne bascule sur le plus petit chiffre que s'il reste une ambiguïté/incohérence
     // -------------------------------------------------------------------------
     function resoudreLignesBadgePourUdb(udb, pageText) {
         const entries = cachedData[udb];
         if (!entries || entries.length === 0) return null;
         if (entries.length === 1) return [formaterQte(entries[0].qte)];
 
-        let candidates = entries;
-        const siteMatches = entries.filter(e => e.siteNorm && pageText.includes(e.siteNorm));
-        if (siteMatches.length > 0) candidates = siteMatches;
-        if (candidates.length === 1) return [formaterQte(candidates[0].qte)];
+        // 1. Recherche directe d'une correspondance exacte sur la Commune
+        const exactCommuneMatches = entries.filter(e => e.communeNorm && pageText.includes(e.communeNorm));
+        if (exactCommuneMatches.length === 1) {
+            return [formaterQte(exactCommuneMatches[0].qte)];
+        }
 
-        const communeMatches = candidates.filter(e => e.communeNorm && pageText.includes(e.communeNorm));
-        if (communeMatches.length === 1) return [formaterQte(communeMatches[0].qte)];
+        // 2. Si plusieurs entrées partagent la même commune (ou aucune commune trouvée), on affine par Site
+        let candidates = exactCommuneMatches.length > 1 ? exactCommuneMatches : entries;
+        const siteMatches = candidates.filter(e => e.siteNorm && pageText.includes(e.siteNorm));
+        if (siteMatches.length === 1) {
+            return [formaterQte(siteMatches[0].qte)];
+        }
+        if (siteMatches.length > 1) {
+            candidates = siteMatches;
+        }
 
-        const selected = communeMatches.length > 0 ? communeMatches : candidates;
-        const minQte = Math.min(...selected.map(e => Number(e.qte)));
+        // 3. Repli uniquement en cas d'incohérence ou d'ambiguïté non levée : plus petit chiffre
+        const minQte = Math.min(...candidates.map(e => Number(e.qte)));
         return [formaterQte(minQte)];
     }
 
