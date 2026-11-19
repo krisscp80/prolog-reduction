@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Surlignage + Interception PDF Passive par Site & Commune (GitHub)
 // @namespace    http://tampermonkey.net/
-// @version      7.0
+// @version      7.2
 // @description  Lit nativement l'onglet REDUCTION (sans SheetJS externe), surligne les UDB et annote le PDF Prolog
 // @match        *://*/*
 // @allFrames    true
@@ -46,7 +46,6 @@
 
     // -------------------------------------------------------------------------
     // 1. LECTEUR XLSX NATIF 100% AUTONOME (Zéro dépendance externe)
-    //    Décompresse le ZIP .xlsx avec DecompressionStream (natif Chrome/Edge)
     // -------------------------------------------------------------------------
     async function lireZipXlsxNatif(arrayBuffer) {
         const view = new DataView(arrayBuffer);
@@ -54,7 +53,6 @@
         const decoder = new TextDecoder('utf-8');
         const files = {};
 
-        // Recherche de l'End of Central Directory (signature 0x06054b50)
         let eocdOffset = -1;
         for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i--) {
             if (view.getUint32(i, true) === 0x06054b50) {
@@ -109,7 +107,6 @@
         const xmlFiles = await lireZipXlsxNatif(arrayBuffer);
         const parser = new DOMParser();
 
-        // 1. Lecture des chaînes partagées (sharedStrings.xml)
         const sharedStrings = [];
         if (xmlFiles['xl/sharedStrings.xml']) {
             const ssDoc = parser.parseFromString(xmlFiles['xl/sharedStrings.xml'], 'text/xml');
@@ -124,7 +121,6 @@
             }
         }
 
-        // 2. Identification du fichier XML correspondant à l'onglet REDUCTION
         const wbDoc = parser.parseFromString(xmlFiles['xl/workbook.xml'], 'text/xml');
         const relsDoc = parser.parseFromString(xmlFiles['xl/_rels/workbook.xml.rels'], 'text/xml');
 
@@ -155,7 +151,6 @@
         const sheetXml = xmlFiles[fullSheetPath];
         if (!sheetXml) throw new Error(`Feuille XML introuvable (${fullSheetPath}).`);
 
-        // 3. Extraction des lignes visibles 2 à 259 (Colonnes A, F, G, H)
         const sheetDoc = parser.parseFromString(sheetXml, 'text/xml');
         const rowNodes = sheetDoc.getElementsByTagName('row');
         const temporary = {};
@@ -194,7 +189,6 @@
                 cells[col] = lireValeurCellule(cNodes[j]);
             }
 
-            // Propagation du Site (Colonne A) même si la ligne d'en-tête est masquée
             if (cells['A'] && String(cells['A']).trim() !== '') {
                 currentSiteRaw = String(cells['A']).trim();
                 currentSiteNorm = normaliserTexte(currentSiteRaw);
@@ -205,7 +199,6 @@
             const rawUdb = String(cells['G'] || '').trim().replace(/\s+/g, '');
             if (!/^\d+$/.test(rawUdb)) continue;
 
-            // Préserve les 7 chiffres avec zéro initial si Excel l'a stocké comme nombre (ex: 102116 -> 0102116)
             const udb = rawUdb.length === 6 ? '0' + rawUdb : rawUdb;
 
             const communeRaw = String(cells['F'] || '').trim();
@@ -378,13 +371,14 @@
 
         if (!pdfjs || !pdfLib) {
             throw new Error(
-                "Les bibliothèques PDF locales (pdf.min.js / pdf-lib.min.js) sont introuvables.\n" +
-                "Vérifiez que Tampermonkey a l'option « Autoriser l'accès aux URL de fichier » activée et que les fichiers sont dans le dossier partagé."
+                "Les bibliothèques PDF (pdf.min.js / pdf-lib.min.js) n'ont pas pu être chargées."
             );
         }
 
-        // Désactive le worker externe si bloqué par le navigateur sur file://
-      
+        if (pdfjs.GlobalWorkerOptions) {
+            pdfjs.GlobalWorkerOptions.workerSrc = 'data:application/javascript,';
+        }
+
         const loadingTask = pdfjs.getDocument({
             data: arrayBuffer.slice(0),
             disableWorker: true
@@ -440,7 +434,6 @@
                 const coverWidth = Math.max(item.width, boldUdbWidth) + 2;
                 const centerX = item.x + item.width / 2;
 
-                // Masque l'UDB fine d'origine et la réécrit en gras sans bordure
                 page.drawRectangle({
                     x: centerX - coverWidth / 2,
                     y: item.y - 1.5,
@@ -679,7 +672,6 @@
             }
         });
 
-        // Déplacement manuel du bandeau
         let drag = false, sx = 0, sy = 0, ol = 0, ot = 0;
         document.getElementById('tm-excel-drag').addEventListener('mousedown', e => {
             drag = true;
